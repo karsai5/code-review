@@ -29,6 +29,7 @@
 ;;; Code:
 
 (require 'ghub)
+(require 'ghub-legacy) ;; provides ghub-graphql (removed from ghub 5.1+ main load path)
 (require 'deferred)
 (require 'code-review-interfaces)
 (require 'code-review-db)
