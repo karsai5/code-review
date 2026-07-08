@@ -62,13 +62,23 @@
     (let* ((status (-second-item .error)))
       (cond
        ((= status 422)
-        (let ((errors (string-join
-                       (a-get (-third-item .error) 'errors)
-                       " AND "))
-              (msg (string-trim (a-get (-third-item .error) 'message))))
-          (message "Errors: %S" (if (string-empty-p errors)
-                                    msg
-                                  (string-join (list msg errors) ". ")))))
+        (let* ((body (-third-item .error))
+               (raw-errors (a-get body 'errors))
+               (errors (if (and raw-errors (not (equal raw-errors [])))
+                           (string-join
+                            (-map (lambda (e)
+                                    (or (a-get e 'message)
+                                        (format "%s: %s"
+                                                (a-get e 'field)
+                                                (a-get e 'code))))
+                                  (append raw-errors nil))
+                            " AND ")
+                         ""))
+               (msg (string-trim (or (a-get body 'message) "Unprocessable Entity"))))
+          (message "GitHub error: %s"
+                   (if (string-empty-p errors)
+                       msg
+                     (concat msg ". " errors)))))
        ((= status 404)
         (message "Provided URL Not Found"))
        ((= status 401)
@@ -520,20 +530,21 @@ Optionally ask for the FALLBACK? query."
 
 (cl-defmethod code-review-send-labels ((github code-review-github-repo) callback)
   "Set labels for your pr at GITHUB and call CALLBACK."
-  (let ((url (format "/repos/%s/%s/issues/%s/labels"
-                     (oref github owner)
-                     (oref github repo)
-                     (oref github number)))
-        (req-fn (if (oref github labels)
-                    #'ghub-post
-                  #'ghub-put)))
+  (let* ((url (format "/repos/%s/%s/issues/%s/labels"
+                      (oref github owner)
+                      (oref github repo)
+                      (oref github number)))
+         (labels (oref github labels))
+         (label-names (if labels
+                          (vconcat (-map (lambda (x) (a-get x 'name)) labels))
+                        []))
+         (req-fn (if labels
+                     #'ghub-post
+                   #'ghub-put)))
     (message "Sending new labels...")
     (funcall req-fn url
              nil
-             :payload (a-alist 'labels (or (-map (lambda (x)
-                                                   (a-get x 'name))
-                                                 (oref github labels))
-                                           []))
+             :payload `((labels . ,label-names))
              :auth code-review-auth-login-marker
              :host code-review-github-host
              :errorback #'code-review-github-errback
@@ -702,31 +713,31 @@ Optionally ask for the FALLBACK? query."
   "Submit replies to review comments inline given REPLIES and a CALLBACK fn."
   (let ((pr (oref replies pr)))
     (deferred:$
-      (deferred:parallel
-        (-map
-         (lambda (reply)
-           (lambda ()
-             (ghub-post (format "/repos/%s/%s/pulls/%s/comments/%s/replies"
-                                (oref pr owner)
-                                (oref pr repo)
-                                (oref pr number)
-                                (oref reply reply-to-id))
-                        nil
-                        :payload (a-alist 'body (oref reply body))
-                        :headers code-review-github-diffheader
-                        :auth code-review-auth-login-marker
-                        :host code-review-github-host
-                        :callback (lambda (&rest _))
-                        :errorback #'code-review-github-errback)))
-         (oref replies replies)))
+     (deferred:parallel
+      (-map
+       (lambda (reply)
+         (lambda ()
+           (ghub-post (format "/repos/%s/%s/pulls/%s/comments/%s/replies"
+                              (oref pr owner)
+                              (oref pr repo)
+                              (oref pr number)
+                              (oref reply reply-to-id))
+                      nil
+                      :payload (a-alist 'body (oref reply body))
+                      :headers code-review-github-diffheader
+                      :auth code-review-auth-login-marker
+                      :host code-review-github-host
+                      :callback (lambda (&rest _))
+                      :errorback #'code-review-github-errback)))
+       (oref replies replies)))
 
-      (deferred:nextc it
-        (lambda (_x)
-          (funcall callback)))
+     (deferred:nextc it
+                     (lambda (_x)
+                       (funcall callback)))
 
-      (deferred:error it
-        (lambda (err)
-          (message "Got an error from the Github Reply API %S!" err))))))
+     (deferred:error it
+                     (lambda (err)
+                       (message "Got an error from the Github Reply API %S!" err))))))
 
 (defclass code-review-submit-github-review ()
   ((state :initform nil)
@@ -752,8 +763,8 @@ Optionally ask for the FALLBACK? query."
                                                            (-map
                                                             (lambda (c)
                                                               `((path . ,(oref c path))
-                                                               (position . ,(oref c position))
-                                                               (body . ,(oref c body))))
+                                                                (position . ,(oref c position))
+                                                                (body . ,(oref c body))))
                                                             (oref review local-comments)))))
                     payload)))
     (ghub-post (format "/repos/%s/%s/pulls/%s/reviews"

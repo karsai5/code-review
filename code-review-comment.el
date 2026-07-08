@@ -164,6 +164,12 @@ Optionally define a MSG."
   (setq code-review-comment-uncommitted obj)
   (code-review-comment-edit))
 
+(cl-defmethod code-review-comment-handler-add-or-edit ((obj code-review-reply-comment-section))
+  "Edit uncommitted reply comment OBJ."
+  (oset obj edit? t)
+  (setq code-review-comment-uncommitted obj)
+  (code-review-comment-edit))
+
 (cl-defmethod code-review-comment-handler-add-or-edit ((obj code-review-title-section))
   "Change title in OBJ."
   (setq code-review-comment-uncommitted obj
@@ -277,6 +283,8 @@ Inform if a SUGGESTION-CODE? is being proposed."
                                           (outdated)
                                           (local?)
                                           (reply? . t)))))))
+    (when (oref obj edit?)
+      (code-review-db-delete-raw-comment (oref obj internalId)))
     (code-review-db--pullreq-raw-comments-update raw-comment)
     (code-review--build-buffer)
     (setq code-review-comment-uncommitted nil)))

@@ -169,7 +169,12 @@ If you want only to submit replies, use ONLY-REPLY? as non-nil."
       (if (and (code-review--submit-feedback-required? review-obj)
                (not only-reply?))
           (message "You must provide a feedback msg before submit your Review.")
-        (progn
+        (if (and (not only-reply?)
+                 (string-equal (oref review-obj state) "COMMENT")
+                 (not (oref review-obj feedback))
+                 (not (oref review-obj local-comments)))
+            (message "Nothing to submit: add inline comments or feedback before submitting a COMMENT review.")
+          (progn
           (when (not only-reply?)
             (code-review-send-review
              review-obj
@@ -191,7 +196,7 @@ If you want only to submit replies, use ONLY-REPLY? as non-nil."
                  (code-review--build-buffer
                   code-review-buffer-name
                   nil
-                  "Done submitting review and replies"))))))))))
+                  "Done submitting review and replies")))))))))))
 
 ;;;###autoload
 (defun code-review-submit-approve (&optional feedback)
